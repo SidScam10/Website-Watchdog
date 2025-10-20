@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Watchdog</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Add the AWS SDK and Cognito Identity SDK -->
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1093.0.min.js"></script>
+    <script src="https://rawgit.com/aws/amazon-cognito-identity-js/master/dist/amazon-cognito-identity.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div id="auth-container" class="max-w-md mx-auto mt-10 p-8 bg-gray-800 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-bold text-center mb-6">Website Watchdog</h2>
+        
+        <!-- Login Form -->
+        <div id="login-form">
+            <h3 class="text-xl mb-4 text-center">Login</h3>
+            <input type="email" id="login-email" placeholder="Email" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input type="password" id="login-password" placeholder="Password" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition duration-300">Login</button>
+            <p class="text-center mt-4">Don't have an account? <a href="#" onclick="toggleAuthForms()" class="text-blue-400 hover:underline">Sign up</a></p>
+        </div>
+
+        <!-- Signup Form -->
+        <div id="signup-form" class="hidden">
+            <h3 class="text-xl mb-4 text-center">Sign Up</h3>
+            <input type="email" id="signup-email" placeholder="Email" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input type="password" id="signup-password" placeholder="Password" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="signup()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded transition duration-300">Sign Up</button>
+             <p class="text-center mt-4">Already have an account? <a href="#" onclick="toggleAuthForms()" class="text-blue-400 hover:underline">Login</a></p>
+        </div>
+        
+        <!-- Verification Form -->
+        <div id="verification-form" class="hidden">
+            <h3 class="text-xl mb-4 text-center">Verify Your Account</h3>
+            <input type="text" id="verification-code" placeholder="Verification Code" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="verify()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-4 rounded transition duration-300">Verify</button>
+        </div>
+
+    </div>
+
+    <div id="app-container" class="hidden max-w-4xl mx-auto mt-10 p-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold">Dashboard</h1>
+            <button onclick="logout()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-300">Logout</button>
+        </div>
+
+        <!-- Add Website Form -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
+            <h2 class="text-xl font-semibold mb-4">Monitor a New Website</h2>
+            <div class="flex space-x-4">
+                <input type="text" id="website-url" placeholder="https://example.com" class="flex-grow p-3 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <input type="text" id="website-keyword" placeholder="Twitter keyword (e.g., #example)" class="flex-grow p-3 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="addWebsite()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded transition duration-300">Add</button>
+            </div>
+        </div>
+
+        <!-- Monitored Websites -->
+        <div>
+            <h2 class="text-2xl font-semibold mb-4">Monitored Services</h2>
+            <div id="website-list" class="space-y-4">
+                <!-- Website items will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Cognito and API Configuration ---
+        const poolData = {
+            UserPoolId: 'YOUR_USER_POOL_ID',
+            ClientId: 'YOUR_USER_POOL_CLIENT_ID'
+        };
+        const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+        const apiGatewayEndpoint = 'YOUR_API_GATEWAY_ENDPOINT';
+        let idToken = null;
+
+        // --- UI Toggles ---
+        function toggleAuthForms() {
+            document.getElementById('login-form').classList.toggle('hidden');
+            document.getElementById('signup-form').classList.toggle('hidden');
+        }
+
+        function showApp() {
+            document.getElementById('auth-container').classList.add('hidden');
+            document.getElementById('app-container').classList.remove('hidden');
+            loadWebsites();
+        }
+
+        function showAuth() {
+            document.getElementById('auth-container').classList.remove('hidden');
+            document.getElementById('app-container').classList.add('hidden');
+        }
+
+
+        // --- Cognito Authentication Functions ---
+        function signup() {
+            const email = document.getElementById('signup-email').value;
+            const password = document.getElementById('signup-password').value;
+            const attributeList = [];
+            const dataEmail = { Name: 'email', Value: email };
+            const attributeEmail = new AmazonCognitoIdentity.CognitoUserAttribute(dataEmail);
+            attributeList.push(attributeEmail);
+
+            userPool.signUp(email, password, attributeList, null, function(err, result) {
+                if (err) {
+                    alert(err.message || JSON.stringify(err));
+                    return;
+                }
+                alert('Registration successful! Please check your email for the verification code.');
+                document.getElementById('signup-form').classList.add('hidden');
+                document.getElementById('verification-form').classList.remove('hidden');
+            });
+        }
+
+        function verify() {
+            const email = document.getElementById('signup-email').value;
+            const verificationCode = document.getElementById('verification-code').value;
+            const cognitoUser = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool });
+
+            cognitoUser.confirmRegistration(verificationCode, true, function(err, result) {
+                if (err) {
+                    alert(err.message || JSON.stringify(err));
+                    return;
+                }
+                alert('Verification successful! You can now log in.');
+                document.getElementById('verification-form').classList.add('hidden');
+                document.getElementById('login-form').classList.remove('hidden');
+            });
+        }
+
+        function login() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            const authenticationData = { Username: email, Password: password };
+            const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails(authenticationData);
+            const cognitoUser = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool });
+
+            cognitoUser.authenticateUser(authenticationDetails, {
+                onSuccess: function(result) {
+                    idToken = result.getIdToken().getJwtToken();
+                    showApp();
+                },
+                onFailure: function(err) {
+                    alert(err.message || JSON.stringify(err));
+                },
+            });
+        }
+        
+        function logout() {
+            const cognitoUser = userPool.getCurrentUser();
+            if (cognitoUser) {
+                cognitoUser.signOut();
+            }
+            idToken = null;
+            showAuth();
+        }
+        
+        // --- Check session on load ---
+        window.onload = function() {
+            const cognitoUser = userPool.getCurrentUser();
+            if (cognitoUser != null) {
+                cognitoUser.getSession(function(err, session) {
+                    if (err) {
+                        alert(err.message || JSON.stringify(err));
+                        showAuth();
+                        return;
+                    }
+                    if(session.isValid()){
+                       idToken = session.getIdToken().getJwtToken();
+                       showApp();
+                    } else {
+                       showAuth();
+                    }
+                });
+            } else {
+                showAuth();
+            }
+        };
+
+
+        // --- API Functions ---
+        async function loadWebsites() {
+             if (!idToken) return;
+            try {
+                const response = await fetch(apiGatewayEndpoint + '/websites', {
+                    method: 'GET',
+                    headers: { 'Authorization': idToken }
+                });
+                if (!response.ok) throw new Error('Failed to fetch websites');
+                const websites = await response.json();
+                const websiteList = document.getElementById('website-list');
+                websiteList.innerHTML = ''; 
+                websites.forEach(site => {
+                    const sentimentScore = parseFloat(site.sentiment_score || 0).toFixed(2);
+                    let statusColor = 'text-gray-400';
+                    if (site.status === 'UP') statusColor = 'text-green-400';
+                    if (site.status === 'DOWN') statusColor = 'text-red-400';
+                    
+                    let sentimentColor = 'text-gray-400';
+                    if (sentimentScore > 0.2) sentimentColor = 'text-green-400';
+                    if (sentimentScore < -0.2) sentimentColor = 'text-red-400';
+
+                    const websiteElement = `
+                        <div class="bg-gray-800 p-4 rounded-lg flex justify-between items-center shadow-md">
+                            <div>
+                                <p class="font-semibold text-lg">${site.website_url}</p>
+                                <p class="text-sm text-gray-400">Twitter Keyword: ${site.twitter_keyword}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-bold ${statusColor}">${site.status || 'Checking...'}</p>
+                                <p class="font-bold ${sentimentColor}">Sentiment: ${sentimentScore}</p>
+                            </div>
+                        </div>
+                    `;
+                    websiteList.innerHTML += websiteElement;
+                });
+
+            } catch (error) {
+                console.error('Error loading websites:', error);
+                alert('Could not load websites.');
+            }
+        }
+
+        async function addWebsite() {
+             if (!idToken) return;
+            const url = document.getElementById('website-url').value;
+            const keyword = document.getElementById('website-keyword').value;
+            if (!url || !keyword) {
+                alert('Please enter both a URL and a Twitter keyword.');
+                return;
+            }
+
+            try {
+                const response = await fetch(apiGatewayEndpoint + '/websites', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': idToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ website_url: url, twitter_keyword: keyword })
+                });
+
+                if (!response.ok) throw new Error('Failed to add website');
+                document.getElementById('website-url').value = '';
+                document.getElementById('website-keyword').value = '';
+                loadWebsites();
+
+            } catch (error) {
+                console.error('Error adding website:', error);
+                alert('Could not add website.');
+            }
+        }
+    </script>
+</body>
+</html>
