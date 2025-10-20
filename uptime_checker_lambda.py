@@ -63,7 +63,7 @@ def handler(event, context):
         total_sentiment = 0
         tweet_count = 0
         try:
-            tweets = twitter_api.search_tweets(q=twitter_keyword, lang="en", count=10)
+            tweets = twitter_api.search_tweets(q=twitter_keyword, lang="en", count=3)
             for tweet in tweets:
                 total_sentiment += get_sentiment(tweet.text)
                 tweet_count += 1
