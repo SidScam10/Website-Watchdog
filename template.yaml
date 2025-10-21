@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Website Watchdog - Uptime monitoring and sentiment analysis application.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: python3.13
+
+Resources:
+  # Lambda Function for handling API requests from the frontend
+  DataApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: data_api_lambda/
+      Handler: data_api_lambda.handler
+      Policies:
+        # Grant permissions to read/write from/to the DynamoDB table
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WebsitesTable
+      Events:
+        GetWebsites:
+          Type: Api
+          Properties:
+            Path: /websites
+            Method: get
+            # This API is protected by the Cognito Authorizer
+            Auth:
+              Authorizer: CognitoAuthorizer
+        AddWebsite:
+          Type: Api
+          Properties:
+            Path: /websites
+            Method: post
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: python3.9
+
+  # Lambda Function for scheduled uptime checks and sentiment analysis
+  UptimeCheckerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: uptime_checker_lambda/
+      Handler: uptime_checker_lambda.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WebsitesTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt SnsTopic.TopicName
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref WebsitesTable
+          SNS_TOPIC_ARN: !Ref SnsTopic
+          # IMPORTANT: For local testing, set your Twitter keys in your shell
+          # or use the --env-vars flag with 'sam local invoke'
+          TWITTER_CONSUMER_KEY: "YOUR_KEY"
+          TWITTER_CONSUMER_SECRET: "YOUR_SECRET"
+          TWITTER_ACCESS_TOKEN: "YOUR_TOKEN"
+          TWITTER_ACCESS_TOKEN_SECRET: "YOUR_SECRET_TOKEN"
+
+    Metadata:
+      BuildMethod: python3.9
+
+  # DynamoDB Table to store website data
+  WebsitesTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: website_url
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  # SNS Topic for notifications
+  SnsTopic:
+    Type: AWS::SNS::Topic
+
+  # API Gateway Definition
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'" # For production, restrict this to your domain
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/YOUR_USER_POOL_ID"
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://__${ServerlessRestApi}__.execute-api.${AWS::Region}.amazonaws.com/prod/"
+  DataApiFunction:
+    Description: "Data API Lambda Function ARN"
+    Value: !GetAtt DataApiFunction.Arn
+  UptimeCheckerFunction:
+    Description: "Uptime Checker Lambda Function ARN"
+    Value: !GetAtt UptimeCheckerFunction.Arn

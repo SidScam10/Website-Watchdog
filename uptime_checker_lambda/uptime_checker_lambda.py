@@ -1,13 +1,19 @@
 import json
+import os # <-- Add this import
 import boto3
-import os
 import requests
-import tweepy # You will need to create a deployment package with this library
-from textblob import TextBlob # You will need to create a deployment package with this library
+import tweepy
+from textblob import TextBlob
 
-# --- AWS Service Clients ---
-dynamodb = boto3.resource('dynamodb')
-sns = boto3.client('sns')
+# Check if running in a local SAM environment
+if 'AWS_SAM_LOCAL' in os.environ:
+    # If so, connect to the local DynamoDB instance
+    dynamodb = boto3.resource('dynamodb', endpoint_url='http://localhost:8000')
+else:
+    # Otherwise, connect to the DynamoDB in the cloud
+    dynamodb = boto3.resource('dynamodb')
+
+TABLE_NAME = os.environ['DYNAMODB_TABLE']
 
 # --- Environment Variables ---
 TABLE_NAME = os.environ.get('DYNAMODB_TABLE')
@@ -63,6 +69,8 @@ def handler(event, context):
         total_sentiment = 0
         tweet_count = 0
         try:
+            # --- MODIFICATION FOR FREE TIER ---
+            # Fetching only 3 tweets to stay within the 100 posts/month limit.
             tweets = twitter_api.search_tweets(q=twitter_keyword, lang="en", count=3)
             for tweet in tweets:
                 total_sentiment += get_sentiment(tweet.text)
@@ -88,3 +96,4 @@ def handler(event, context):
         'statusCode': 200,
         'body': json.dumps('Website checks and sentiment analysis complete!')
     }
+

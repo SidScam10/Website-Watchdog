@@ -1,10 +1,16 @@
 import json
 import boto3
-import os
+import os # <-- Add this import
 
-dynamodb = boto3.resource('dynamodb')
-table_name = os.environ.get('DYNAMODB_TABLE')
-table = dynamodb.Table(table_name)
+# Check if running in a local SAM environment
+if 'AWS_SAM_LOCAL' in os.environ:
+    # If so, connect to the local DynamoDB instance
+    dynamodb = boto3.resource('dynamodb', endpoint_url='http://localhost:8000')
+else:
+    # Otherwise, connect to the DynamoDB in the cloud
+    dynamodb = boto3.resource('dynamodb')
+
+table = dynamodb.Table(os.environ['DYNAMODB_TABLE'])
 
 def handler(event, context):
     http_method = event['httpMethod']

@@ -5,52 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Website Watchdog</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Add the AWS SDK and Cognito Identity SDK -->
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1093.0.min.js"></script>
-    <script src="https://rawgit.com/aws/amazon-cognito-identity-js/master/dist/amazon-cognito-identity.min.js"></script>
+    <!-- Replaced the old Cognito SDK with the new oidc-client-ts library from a CDN -->
+    <script src="https://unpkg.com/oidc-client-ts@2.2.0/dist/browser/oidc-client-ts.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
         }
+        pre {
+            white-space: pre-wrap;
+            word-break: break-all;
+            background-color: #1f2937;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white">
 
-    <div id="auth-container" class="max-w-md mx-auto mt-10 p-8 bg-gray-800 rounded-lg shadow-lg">
-        <h2 class="text-2xl font-bold text-center mb-6">Website Watchdog</h2>
-        
-        <!-- Login Form -->
-        <div id="login-form">
-            <h3 class="text-xl mb-4 text-center">Login</h3>
-            <input type="email" id="login-email" placeholder="Email" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <input type="password" id="login-password" placeholder="Password" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition duration-300">Login</button>
-            <p class="text-center mt-4">Don't have an account? <a href="#" onclick="toggleAuthForms()" class="text-blue-400 hover:underline">Sign up</a></p>
-        </div>
-
-        <!-- Signup Form -->
-        <div id="signup-form" class="hidden">
-            <h3 class="text-xl mb-4 text-center">Sign Up</h3>
-            <input type="email" id="signup-email" placeholder="Email" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <input type="password" id="signup-password" placeholder="Password" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <button onclick="signup()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded transition duration-300">Sign Up</button>
-             <p class="text-center mt-4">Already have an account? <a href="#" onclick="toggleAuthForms()" class="text-blue-400 hover:underline">Login</a></p>
-        </div>
-        
-        <!-- Verification Form -->
-        <div id="verification-form" class="hidden">
-            <h3 class="text-xl mb-4 text-center">Verify Your Account</h3>
-            <input type="text" id="verification-code" placeholder="Verification Code" class="w-full p-3 mb-4 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <button onclick="verify()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-4 rounded transition duration-300">Verify</button>
-        </div>
-
+    <!-- Simplified Auth Container -->
+    <div id="auth-container" class="max-w-md mx-auto mt-20 p-8 text-center bg-gray-800 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-bold mb-6">Website Watchdog</h2>
+        <p class="mb-6 text-gray-400">Please sign in to continue to your dashboard.</p>
+        <button id="signIn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition duration-300">Sign In</button>
     </div>
 
+    <!-- Main App Container -->
     <div id="app-container" class="hidden max-w-4xl mx-auto mt-10 p-8">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold">Dashboard</h1>
-            <button onclick="logout()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-300">Logout</button>
+            <button id="signOut" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-300">Logout</button>
+        </div>
+
+        <!-- User Info Display -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
+            <h2 class="text-xl font-semibold mb-4">User Session Information</h2>
+            <div>Hello: <span id="email" class="font-mono text-green-400"></span></div>
+            <div class="mt-4">
+                <label class="text-sm text-gray-400">ID Token:</label>
+                <pre id="id-token"></pre>
+            </div>
         </div>
 
         <!-- Add Website Form -->
@@ -73,24 +68,40 @@
     </div>
 
     <script>
-        // --- Cognito and API Configuration ---
-        const poolData = {
-            UserPoolId: 'YOUR_USER_POOL_ID',
-            ClientId: 'YOUR_USER_POOL_CLIENT_ID'
-        };
-        const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
-        const apiGatewayEndpoint = 'YOUR_API_GATEWAY_ENDPOINT';
+        // --- OIDC and API Configuration ---
+        const cognitoDomain = 'https://ap-southeast-2bn2kf3a3x.auth.ap-southeast-2.amazoncognito.com';
+        const userPoolId = 'ap-southeast-2_bN2Kf3a3x';
+        const clientId = '6gdd99jei5al6qaf3l6effgg32';
+        const region = 'ap-southeast-2'; 
+        
+        // This should be the URL of the page where this code is running (your S3 static site URL).
+        const redirectUri = window.location.origin; 
+        const logoutUri = window.location.origin;
+
+        const apiGatewayEndpoint = 'http://127.0.0.1:3000';
         let idToken = null;
 
-        // --- UI Toggles ---
-        function toggleAuthForms() {
-            document.getElementById('login-form').classList.toggle('hidden');
-            document.getElementById('signup-form').classList.toggle('hidden');
-        }
+        const cognitoAuthConfig = {
+            authority: `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`,
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            response_type: "code",
+            scope: "openid email profile", // Ensure these scopes are enabled in your App Client
+            post_logout_redirect_uri: logoutUri,
+        };
+        
+        const userManager = new oidc.UserManager(cognitoAuthConfig);
 
-        function showApp() {
+        // --- UI Functions ---
+        function showApp(user) {
+            idToken = user.id_token;
             document.getElementById('auth-container').classList.add('hidden');
             document.getElementById('app-container').classList.remove('hidden');
+
+            // Display user info
+            document.getElementById("email").textContent = user.profile?.email;
+            document.getElementById("id-token").textContent = user.id_token;
+            
             loadWebsites();
         }
 
@@ -98,95 +109,51 @@
             document.getElementById('auth-container').classList.remove('hidden');
             document.getElementById('app-container').classList.add('hidden');
         }
-
-
-        // --- Cognito Authentication Functions ---
-        function signup() {
-            const email = document.getElementById('signup-email').value;
-            const password = document.getElementById('signup-password').value;
-            const attributeList = [];
-            const dataEmail = { Name: 'email', Value: email };
-            const attributeEmail = new AmazonCognitoIdentity.CognitoUserAttribute(dataEmail);
-            attributeList.push(attributeEmail);
-
-            userPool.signUp(email, password, attributeList, null, function(err, result) {
-                if (err) {
-                    alert(err.message || JSON.stringify(err));
-                    return;
-                }
-                alert('Registration successful! Please check your email for the verification code.');
-                document.getElementById('signup-form').classList.add('hidden');
-                document.getElementById('verification-form').classList.remove('hidden');
-            });
-        }
-
-        function verify() {
-            const email = document.getElementById('signup-email').value;
-            const verificationCode = document.getElementById('verification-code').value;
-            const cognitoUser = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool });
-
-            cognitoUser.confirmRegistration(verificationCode, true, function(err, result) {
-                if (err) {
-                    alert(err.message || JSON.stringify(err));
-                    return;
-                }
-                alert('Verification successful! You can now log in.');
-                document.getElementById('verification-form').classList.add('hidden');
-                document.getElementById('login-form').classList.remove('hidden');
-            });
-        }
-
-        function login() {
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            const authenticationData = { Username: email, Password: password };
-            const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails(authenticationData);
-            const cognitoUser = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool });
-
-            cognitoUser.authenticateUser(authenticationDetails, {
-                onSuccess: function(result) {
-                    idToken = result.getIdToken().getJwtToken();
-                    showApp();
-                },
-                onFailure: function(err) {
-                    alert(err.message || JSON.stringify(err));
-                },
-            });
-        }
         
-        function logout() {
-            const cognitoUser = userPool.getCurrentUser();
-            if (cognitoUser) {
-                cognitoUser.signOut();
+        // --- Authentication Logic ---
+        document.getElementById("signIn").addEventListener("click", () => {
+            userManager.signinRedirect();
+        });
+
+        document.getElementById("signOut").addEventListener("click", () => {
+            // This performs a local signout and then redirects to the Cognito logout endpoint
+            userManager.signoutRedirect();
+        });
+
+        async function handleAuthCallback() {
+            try {
+                const user = await userManager.signinCallback();
+                if (user) {
+                    showApp(user);
+                    // Clean the URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            } catch (error) {
+                console.error("Error handling sign-in callback:", error);
+                showAuth();
             }
-            idToken = null;
-            showAuth();
         }
         
-        // --- Check session on load ---
-        window.onload = function() {
-            const cognitoUser = userPool.getCurrentUser();
-            if (cognitoUser != null) {
-                cognitoUser.getSession(function(err, session) {
-                    if (err) {
-                        alert(err.message || JSON.stringify(err));
-                        showAuth();
-                        return;
-                    }
-                    if(session.isValid()){
-                       idToken = session.getIdToken().getJwtToken();
-                       showApp();
-                    } else {
-                       showAuth();
-                    }
-                });
+        // --- Main Application Logic on Page Load ---
+        async function main() {
+            // Check if this is a redirect from the login page
+            if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
+                await handleAuthCallback();
+                return;
+            }
+
+            // Check if user is already logged in
+            const user = await userManager.getUser();
+            if (user && !user.expired) {
+                showApp(user);
             } else {
                 showAuth();
             }
-        };
+        }
 
+        main();
 
-        // --- API Functions ---
+        // --- API Functions (unchanged logic, but now uses the new idToken) ---
         async function loadWebsites() {
              if (!idToken) return;
             try {
