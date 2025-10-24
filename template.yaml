@@ -5,7 +5,7 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 10
+    Timeout: 30
     MemorySize: 128
     Runtime: python3.13
 
@@ -26,7 +26,7 @@ Resources:
           Properties:
             Path: /websites
             Method: get
-            # This API is protected by the Cognito Authorizer
+            RestApiId: !Ref ApiGatewayApi
             Auth:
               Authorizer: CognitoAuthorizer
         AddWebsite:
@@ -34,10 +34,11 @@ Resources:
           Properties:
             Path: /websites
             Method: post
+            RestApiId: !Ref ApiGatewayApi
             Auth:
               Authorizer: CognitoAuthorizer
     Metadata:
-      BuildMethod: python3.9
+      BuildMethod: python3.13
 
   # Lambda Function for scheduled uptime checks and sentiment analysis
   UptimeCheckerFunction:
@@ -60,9 +61,17 @@ Resources:
           TWITTER_CONSUMER_SECRET: "YOUR_SECRET"
           TWITTER_ACCESS_TOKEN: "YOUR_TOKEN"
           TWITTER_ACCESS_TOKEN_SECRET: "YOUR_SECRET_TOKEN"
+      Events:
+        ScheduledCheck:
+          Type: Schedule
+          Properties:
+            # Free tier: Runs once per day at 6 PM UTC
+            Schedule: cron(0 18 * * ? *)
+            # Original: Runs every 5 minutes
+            # Schedule: rate(5 minutes)
 
     Metadata:
-      BuildMethod: python3.9
+      BuildMethod: python3.13
 
   # DynamoDB Table to store website data
   WebsitesTable:
@@ -78,6 +87,12 @@ Resources:
   # SNS Topic for notifications
   SnsTopic:
     Type: AWS::SNS::Topic
+    Properties:
+      TopicName: WebsiteWatchdogAlerts
+      Subscription:
+        # NOTE: You MUST replace this with your email and confirm the subscription
+        - Endpoint: "sidscam10@gmail.com"
+          Protocol: "email"
 
   # API Gateway Definition
   ApiGatewayApi:
@@ -91,7 +106,7 @@ Resources:
       Auth:
         Authorizers:
           CognitoAuthorizer:
-            UserPoolArn: !Sub "arn:aws:cognito-idp:ap-south-1:896015496487:userpool/ap-south-1_bRNFj8B8W"
+            UserPoolArn: "arn:aws:cognito-idp:ap-south-1:896015496487:userpool/ap-south-1_bRNFj8B8W"
 
 Outputs:
   ApiEndpoint:
