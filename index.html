@@ -69,14 +69,14 @@
 
     <script>
         // --- OIDC and API Configuration ---
-        const cognitoDomain = 'https://ap-southeast-2bn2kf3a3x.auth.ap-southeast-2.amazoncognito.com';
-        const userPoolId = 'ap-southeast-2_bN2Kf3a3x';
-        const clientId = '6gdd99jei5al6qaf3l6effgg32';
-        const region = 'ap-southeast-2'; 
+        const cognitoDomain = 'https://ap-south-1brnfj8b8w.auth.ap-south-1.amazoncognito.com';
+        const userPoolId = 'ap-south-1_bRNFj8B8W';
+        const clientId = '4e3el92ks6l1ck8eogckvv0lkn';
+        const region = 'ap-south-2'; 
         
         // This should be the URL of the page where this code is running (your S3 static site URL).
-        const redirectUri = window.location.origin; 
-        const logoutUri = window.location.origin;
+        const redirectUri = "http://localhost:8080"; 
+        const logoutUri = "http://localhost:8080";
 
         const apiGatewayEndpoint = 'http://127.0.0.1:3000';
         let idToken = null;

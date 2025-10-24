@@ -91,7 +91,7 @@ Resources:
       Auth:
         Authorizers:
           CognitoAuthorizer:
-            UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/YOUR_USER_POOL_ID"
+            UserPoolArn: !Sub "arn:aws:cognito-idp:ap-south-1:896015496487:userpool/ap-south-1_bRNFj8B8W"
 
 Outputs:
   ApiEndpoint:
