@@ -2,13 +2,9 @@ import json
 import boto3
 import os
 import requests
-import tweepy  # This library supports both v1.1 and v2
+import tweepy
 from textblob import TextBlob
-
-# --- Environment Variables ---
-# IMPORTANT: You must get the BEARER_TOKEN from your Twitter/X Developer Portal
-# It's in the same "Keys and Tokens" section as your other keys.
-BEARER_TOKEN = os.environ.get('TWITTER_BEARER_TOKEN')
+import time
 
 # --- AWS Service Clients ---
 IS_SAM_LOCAL = os.environ.get('AWS_SAM_LOCAL')
@@ -19,9 +15,12 @@ else:
     print("Running in AWS: Connecting to default DynamoDB endpoint.")
     dynamodb = boto3.resource('dynamodb')
 
-sns = boto3.client('sns')
+# --- Environment Variables ---
+BEARER_TOKEN = os.environ.get('TWITTER_BEARER_TOKEN')
 TABLE_NAME = os.environ.get('DYNAMODB_TABLE')
 SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
+
+sns = boto3.client('sns')
 
 def get_sentiment(text):
     """Analyzes the sentiment of a given text."""
@@ -35,7 +34,14 @@ def handler(event, context):
     table = dynamodb.Table(TABLE_NAME)
     websites = table.scan().get('Items', [])
     
+    # --- DEBUG LINE ---
+    print(f"--- DEBUG: Loaded Bearer Token: '{BEARER_TOKEN}' ---")
+    
     # Initialize the Tweepy Client for Twitter API v2
+    if not BEARER_TOKEN:
+        print("FATAL ERROR: TWITTER_BEARER_TOKEN environment variable not set.")
+        return {'statusCode': 500, 'body': json.dumps('Twitter Bearer Token not configured.')}
+        
     try:
         twitter_client = tweepy.Client(BEARER_TOKEN)
     except Exception as e:
@@ -55,6 +61,7 @@ def handler(event, context):
         except requests.exceptions.RequestException as e:
             print(f"Error checking {website_url}: {e}")
             if site.get('status') != 'DOWN':
+                # Only publish if the status *changed* to DOWN
                 sns.publish(
                     TopicArn=SNS_TOPIC_ARN,
                     Message=f"Website Down Alert: {website_url} is unreachable.",
@@ -64,17 +71,19 @@ def handler(event, context):
         # 2. Analyze Twitter Sentiment using API v2
         total_sentiment = 0.0
         tweet_count = 0
+        example_tweets = []  # NEW: Create a list to hold example tweets
+
         try:
-            # Use the v2 endpoint for searching recent tweets
-            # The `-is:retweet` part filters out retweets for better sentiment accuracy
             query = f'{twitter_keyword} -is:retweet'
-            response = twitter_client.search_recent_tweets(query, max_results=10)
+            response = twitter_client.search_recent_tweets(query, max_results=3)
             
-            # The v2 response object is different. Tweets are in the `data` attribute.
             if response.data:
                 for tweet in response.data:
                     total_sentiment += get_sentiment(tweet.text)
                     tweet_count += 1
+                    # NEW: Add the first 3 tweets to our list
+                    if len(example_tweets) < 3:
+                        example_tweets.append(tweet.text)
             else:
                 print(f"No tweets found for keyword: {twitter_keyword}")
 
@@ -86,14 +95,21 @@ def handler(event, context):
         # 3. Update DynamoDB
         table.update_item(
             Key={'website_url': website_url},
-            UpdateExpression="set #st = :s, sentiment_score = :sent",
+            # NEW: Add example_tweets=:t to the update expression
+            UpdateExpression="set #st = :s, sentiment_score = :sent, example_tweets = :t",
             ExpressionAttributeNames={'#st': 'status'},
+            # NEW: Add :t to the attribute values
             ExpressionAttributeValues={
                 ':s': current_status,
-                ':sent': str(round(average_sentiment, 4))
+                ':sent': str(round(average_sentiment, 4)),
+                ':t': example_tweets  # This saves the list to DynamoDB
             }
         )
         print(f"Updated {website_url}: Status - {current_status}, Sentiment - {average_sentiment:.4f}")
+
+        # Add a 3-second delay to respect Twitter's rate limit
+        print("Waiting 10 seconds to avoid rate limit...")
+        time.sleep(10)
 
     return {
         'statusCode': 200,
