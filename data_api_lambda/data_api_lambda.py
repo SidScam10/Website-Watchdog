@@ -5,7 +5,7 @@ import os # <-- Add this import
 # Check if running in a local SAM environment
 if 'AWS_SAM_LOCAL' in os.environ:
     # If so, connect to the local DynamoDB instance
-    dynamodb = boto3.resource('dynamodb', endpoint_url='http://localhost:8000')
+    dynamodb = boto3.resource('dynamodb', endpoint_url='http://host.docker.internal:8000')
 else:
     # Otherwise, connect to the DynamoDB in the cloud
     dynamodb = boto3.resource('dynamodb')

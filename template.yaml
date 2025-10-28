@@ -5,7 +5,7 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 30
+    Timeout: 90
     MemorySize: 128
     Runtime: python3.13
 
@@ -16,6 +16,9 @@ Resources:
     Properties:
       CodeUri: data_api_lambda/
       Handler: data_api_lambda.handler
+      Environment:  # <-- ADD THIS
+        Variables:  # <-- ADD THIS
+          DYNAMODB_TABLE: !Ref WebsitesTable
       Policies:
         # Grant permissions to read/write from/to the DynamoDB table
         - DynamoDBCrudPolicy:
@@ -106,7 +109,7 @@ Resources:
       Auth:
         Authorizers:
           CognitoAuthorizer:
-            UserPoolArn: "arn:aws:cognito-idp:ap-south-1:896015496487:userpool/ap-south-1_bRNFj8B8W"
+            UserPoolArn: "arn:aws:cognito-idp:ap-south-2:896015496487:userpool/ap-south-2_bLLgSfyzX"
 
 Outputs:
   ApiEndpoint:
