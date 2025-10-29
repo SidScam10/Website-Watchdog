@@ -16,8 +16,8 @@ Resources:
     Properties:
       CodeUri: data_api_lambda/
       Handler: data_api_lambda.handler
-      Environment:  # <-- ADD THIS
-        Variables:  # <-- ADD THIS
+      Environment:
+        Variables:  
           DYNAMODB_TABLE: !Ref WebsitesTable
       Policies:
         # Grant permissions to read/write from/to the DynamoDB table
@@ -37,6 +37,14 @@ Resources:
           Properties:
             Path: /websites
             Method: post
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        DeleteWebsite:
+          Type: Api
+          Properties:
+            Path: /websites
+            Method: DELETE
             RestApiId: !Ref ApiGatewayApi
             Auth:
               Authorizer: CognitoAuthorizer
@@ -103,7 +111,7 @@ Resources:
     Properties:
       StageName: prod
       Cors:
-        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowMethods: "'GET,POST,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
         AllowOrigin: "'*'" # For production, restrict this to your domain
       Auth:

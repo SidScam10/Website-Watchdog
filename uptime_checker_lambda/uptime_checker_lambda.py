@@ -75,7 +75,7 @@ def handler(event, context):
 
         try:
             query = f'{twitter_keyword} -is:retweet'
-            response = twitter_client.search_recent_tweets(query, max_results=3)
+            response = twitter_client.search_recent_tweets(query, max_results=10)
             
             if response.data:
                 for tweet in response.data:
