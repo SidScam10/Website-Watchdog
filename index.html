@@ -21,6 +21,72 @@
             border-radius: 0.25rem;
             font-size: 0.8rem;
         }
+        .website-card {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .website-card:hover {
+            background-color: #374151; /* A slightly lighter gray on hover */
+        }
+        
+        /* NEW: Styles for the modal popup */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.7); /* Dim background */
+        }
+        .modal-content {
+            background-color: #1f2937; /* Dark gray */
+            margin: 10% auto;
+            padding: 24px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 700px;
+            position: relative;
+        }
+        .modal-close {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 25px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .modal-close:hover {
+            color: #fff;
+        }
+        /* --- NEW: Spinner Styles --- */
+        .spinner-overlay {
+            display: none; /* Hidden by default */
+            position: fixed;
+            z-index: 2000; /* On top of everything */
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5); /* Dim overlay */
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner {
+            border: 6px solid #f3f3f3; /* Light grey */
+            border-top: 6px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white">
@@ -71,6 +137,7 @@
             logoutUri: 'http://localhost:8081'      // For local http.server
         };
         let idToken = null; // Stores the user's ID token after login
+        let monitoredSites = []; // NEW: Global cache for site data
 
         // Configuration for the oidc-client-ts library
         const authSettings = {
@@ -87,6 +154,18 @@
         // --- UI Functions ---
         // Shows the main app and hides the login button
         function showApp(user) {
+            console.log("User found on load:", user); // Debug line
+            idToken = user.id_token; // Save the token for API calls
+            
+            // --- NEW FIX: Check if idToken is valid ---
+            if (!idToken) {
+                console.error("No id_token on user object! Forcing re-auth.");
+                alert("Your session has expired. Please sign in again.");
+                // Clear the bad session and force a sign-in
+                userManager.signoutRedirect();
+                return;
+            }
+
             idToken = user.id_token; // Save the token for API calls
             document.getElementById('auth-container').classList.add('hidden');
             document.getElementById('app-container').classList.remove('hidden');
@@ -141,7 +220,8 @@
          * Fetches the list of websites from the API and renders them.
          */
         async function loadWebsites() {
-             if (!idToken) return;
+            if (!idToken) return;
+            showSpinner();
             try {
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/websites', {
                     method: 'GET',
@@ -151,6 +231,7 @@
                 
                 const websites = await response.json();
                 const websiteList = document.getElementById('website-list');
+                monitoredSites = websites; // NEW: Save data to global cache
                 websiteList.innerHTML = ''; // Clear the list before re-rendering
 
                 if (websites.length === 0) {
@@ -195,7 +276,7 @@
                     
                     // --- Build the final HTML for the card ---
                     const websiteElement = `
-                        <div classid="card-${site.website_url}" class="bg-gray-800 p-4 rounded-lg shadow-md">
+                        <div onclick="showHistoryModal(event, '${site.website_url}')" classid="card-${site.website_url}" class="website-card bg-gray-800 p-4 rounded-lg shadow-md">
                             <div class="flex justify-between items-start">
                                 
                                 <div class="flex items-center space-x-3">
@@ -212,8 +293,11 @@
                                 </div>
                             </div>
                             ${tweetsHtml}
-                            <div class="text-right mt-2">
-                                <button onclick="deleteWebsite('${site.website_url}')" class="text-xs text-red-400 hover:text-red-300">
+                            <div class="text-right mt-2 space-x-4">
+                                <button onclick="requestCheck(event, '${site.website_url}')" class="text-xs text-blue-400 hover:text-blue-300">
+                                    Request Check
+                                </button>
+                                <button onclick="deleteWebsite(event, '${site.website_url}')" class="text-xs text-red-400 hover:text-red-300">
                                     Delete
                                 </button>
                             </div>
@@ -225,21 +309,23 @@
             } catch (error) {
                 console.error('Error loading websites:', error);
                 alert('Could not load websites.');
-            }
+            } finally {
+                hideSpinner();
+             }
         }
 
         /**
          * Sends a new website to the API to be added.
          */
         async function addWebsite() {
-             if (!idToken) return;
+            if (!idToken) return;
             const url = document.getElementById('website-url').value;
             const keyword = document.getElementById('website-keyword').value;
             if (!url || !keyword) {
                 alert('Please enter both a URL and a Twitter keyword.');
                 return;
             }
-
+            showSpinner();
             try {
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/websites', {
                     method: 'POST',
@@ -258,9 +344,12 @@
             } catch (error) {
                 console.error('Error adding website:', error);
                 alert('Could not add website.');
+            } finally {
+                hideSpinner(); // <-- ADD THIS
             }
         }
-        async function deleteWebsite(websiteUrl) {
+        async function deleteWebsite(event, websiteUrl) {
+            event.stopPropagation(); // NEW: Stop the card's click event
             if (!idToken) return;
             
             // Use a simple confirmation before deleting
@@ -268,6 +357,7 @@
                 return;
             }
 
+            showSpinner();
             try {
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/websites', {
                     method: 'DELETE',
@@ -288,9 +378,131 @@
             } catch (error) {
                 console.error('Error deleting website:', error);
                 alert(`Could not delete website: ${error.message}`);
+            } finally {
+                hideSpinner(); // <-- ADD THIS
+            }
+        }
+        /**
+         * Finds the history for a site and displays the modal.
+         */
+        function showHistoryModal(event, websiteUrl) {
+            if (event.target.tagName === 'BUTTON') {
+                event.stopPropagation(); // Stop the click from bubbling up
+                return;
+            }
+            const site = monitoredSites.find(s => s.website_url === websiteUrl);
+            if (!site || !site.tweet_history) {
+                console.log("No history for this site.");
+                return;
+            }
+
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+            
+            modalBody.innerHTML = ''; // Clear old content
+
+            // Get the Twitter logo URL (using the same Google service)
+            const twitterLogoUrl = 'https://www.google.com/s2/favicons?domain=twitter.com&sz=24'; // 24px size
+
+            // Set the .innerHTML to include the image
+            modalTitle.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <img src="${twitterLogoUrl}" alt="twitter" class="w-6 h-6 rounded-full">
+                    <span class="text-2xl font-bold">Tweet History for: ${site.website_url}</span>
+                </div>
+            `;
+
+            // Loop through history entries (newest first)
+            site.tweet_history.slice().reverse().forEach(entry => {
+                let tweetsHtml = '<ul class="pl-4 list-disc text-gray-400 text-sm">';
+                if (entry.tweets && entry.tweets.length > 0) {
+                    entry.tweets.forEach(tweet => {
+                        const shortTweet = tweet.length > 100 ? tweet.substring(0, 100) + '...' : tweet;
+                        tweetsHtml += `<li class="italic">"${shortTweet}"</li>`;
+                    });
+                } else {
+                    tweetsHtml += '<li>No tweets found for this run.</li>';
+                }
+                tweetsHtml += '</ul>';
+
+                const entryElement = `
+                    <div class="bg-gray-700 p-3 rounded-lg">
+                        <p class="font-semibold text-gray-200">
+                            Check on: ${new Date(entry.timestamp).toLocaleString()}
+                        </p>
+                        <p class="text-sm text-gray-400">
+                            Avg. Sentiment: ${entry.sentiment}
+                        </p>
+                        ${tweetsHtml}
+                    </div>
+                `;
+                modalBody.innerHTML += entryElement;
+            });
+
+            document.getElementById('historyModal').style.display = 'block';
+        }
+
+        /**
+         * Hides the history modal.
+         */
+        function closeHistoryModal() {
+            document.getElementById('historyModal').style.display = 'none';
+        }
+
+        // Buffering to indicate load while adding websites, calling api, etc.
+        function showSpinner() {
+            document.getElementById('spinnerOverlay').style.display = 'flex';
+        }
+
+        function hideSpinner() {
+            document.getElementById('spinnerOverlay').style.display = 'none';
+        }
+
+        async function requestCheck(event, websiteUrl) {
+            event.stopPropagation(); // Stop the card's click event
+            if (!idToken) return;
+
+            if (!confirm(`This will send a request to the admin to run a manual check on ${websiteUrl}. Continue?`)) {
+                return;
+            }
+
+            showSpinner();
+            try {
+                const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/request-check', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': idToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ website_url: websiteUrl })
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result.error || 'Failed to send request');
+                }
+                
+                alert(result.message); // Show success message from API
+
+            } catch (error) {
+                console.error('Error requesting check:', error);
+                alert(`Could not send request: ${error.message}`);
+            } finally {
+                hideSpinner();
             }
         }
     </script>
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeHistoryModal()">&times;</span>
+            <h2 id="modalTitle" class="text-2xl font-bold mb-4">Tweet History</h2>
+            <div id="modalBody" class="max-h-96 overflow-y-auto space-y-4">
+                </div>
+        </div>
+    </div>
+    <div id="spinnerOverlay" class="spinner-overlay">
+        <div class="spinner"></div>
+    </div>
 </body>
 </html>
 

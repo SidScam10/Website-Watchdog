@@ -80,7 +80,30 @@ Resources:
             Schedule: cron(0 18 * * ? *)
             # Original: Runs every 5 minutes
             # Schedule: rate(5 minutes)
-
+  RequestCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: request_check_lambda/
+      Handler: request_check_lambda.handler
+      Runtime: python3.13 # Make sure this matches your other functions
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SnsTopic
+      Events:
+        RequestCheck:
+          Type: Api
+          Properties:
+            Path: /request-check
+            Method: POST
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies: # Add permissions to publish to SNS
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt SnsTopic.TopicName
+    DependsOn:
+      - ApiGatewayApi
+      - SnsTopic
     Metadata:
       BuildMethod: python3.13
 

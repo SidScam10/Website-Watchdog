@@ -4,6 +4,7 @@ import os
 import requests
 import tweepy
 from textblob import TextBlob
+from datetime import datetime
 import time
 
 # --- AWS Service Clients ---
@@ -16,7 +17,7 @@ else:
     dynamodb = boto3.resource('dynamodb')
 
 # --- Environment Variables ---
-BEARER_TOKEN = os.environ.get('TWITTER_BEARER_TOKEN')
+BEARER_TOKEN = os.environ.get("TWITTER_BEARER_TOKEN")
 TABLE_NAME = os.environ.get('DYNAMODB_TABLE')
 SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
 
@@ -71,7 +72,7 @@ def handler(event, context):
         # 2. Analyze Twitter Sentiment using API v2
         total_sentiment = 0.0
         tweet_count = 0
-        example_tweets = []  # NEW: Create a list to hold example tweets
+        all_tweets = []  # NEW: Create a list to hold example tweets
 
         try:
             query = f'{twitter_keyword} -is:retweet'
@@ -81,9 +82,8 @@ def handler(event, context):
                 for tweet in response.data:
                     total_sentiment += get_sentiment(tweet.text)
                     tweet_count += 1
-                    # NEW: Add the first 3 tweets to our list
-                    if len(example_tweets) < 3:
-                        example_tweets.append(tweet.text)
+                    # --- NEW: Collect ALL 10 tweets ---
+                    all_tweets.append(tweet.text)
             else:
                 print(f"No tweets found for keyword: {twitter_keyword}")
 
@@ -92,22 +92,32 @@ def handler(event, context):
 
         average_sentiment = total_sentiment / tweet_count if tweet_count > 0 else 0.0
 
+        new_history_entry = {
+            'timestamp': datetime.utcnow().isoformat(), # Add a timestamp
+            'sentiment': str(round(average_sentiment, 4)),
+            'tweets': all_tweets # Add all 10 tweets
+        }
+
         # 3. Update DynamoDB
         table.update_item(
             Key={'website_url': website_url},
-            # NEW: Add example_tweets=:t to the update expression
-            UpdateExpression="set #st = :s, sentiment_score = :sent, example_tweets = :t",
+            # --- UPDATED: New UpdateExpression ---
+            UpdateExpression="set #st = :s, sentiment_score = :sent, " + \
+                             "example_tweets = :t, " + \
+                             "tweet_history = list_append(if_not_exists(tweet_history, :empty_list), :h)",
             ExpressionAttributeNames={'#st': 'status'},
-            # NEW: Add :t to the attribute values
+            # --- UPDATED: New ExpressionAttributeValues ---
             ExpressionAttributeValues={
                 ':s': current_status,
                 ':sent': str(round(average_sentiment, 4)),
-                ':t': example_tweets  # This saves the list to DynamoDB
+                ':t': all_tweets[:3],  # Keep example_tweets as the first 3
+                ':h': [new_history_entry],    # Append the new history entry as a list
+                ':empty_list': []             # Create an empty list if tweet_history doesn't exist
             }
         )
         print(f"Updated {website_url}: Status - {current_status}, Sentiment - {average_sentiment:.4f}")
 
-        # Add a 3-second delay to respect Twitter's rate limit
+        # Add a 10-second delay to respect Twitter's rate limit
         print("Waiting 10 seconds to avoid rate limit...")
         time.sleep(10)
 
