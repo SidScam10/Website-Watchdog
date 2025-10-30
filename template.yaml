@@ -66,46 +66,30 @@ Resources:
         Variables:
           DYNAMODB_TABLE: !Ref WebsitesTable
           SNS_TOPIC_ARN: !Ref SnsTopic
-          # IMPORTANT: For local testing, set your Twitter keys in your shell
-          # or use the --env-vars flag with 'sam local invoke'
-          TWITTER_CONSUMER_KEY: "YOUR_KEY"
-          TWITTER_CONSUMER_SECRET: "YOUR_SECRET"
-          TWITTER_ACCESS_TOKEN: "YOUR_TOKEN"
-          TWITTER_ACCESS_TOKEN_SECRET: "YOUR_SECRET_TOKEN"
+          # NEW: Use the Bearer Token for Twitter API v2
+          # You will set the actual value in your .env file for local testing
+          # and in the Lambda console for production.
+          TWITTER_BEARER_TOKEN: "YOUR_BEARER_TOKEN_HERE" 
       Events:
         ScheduledCheck:
           Type: Schedule
           Properties:
-            # Free tier: Runs once per day at 6 PM UTC
-            Schedule: cron(0 18 * * ? *)
-            # Original: Runs every 5 minutes
-            # Schedule: rate(5 minutes)
-  RequestCheckFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: request_check_lambda/
-      Handler: request_check_lambda.handler
-      Runtime: python3.13 # Make sure this matches your other functions
-      Environment:
-        Variables:
-          SNS_TOPIC_ARN: !Ref SnsTopic
-      Events:
-        RequestCheck:
+            # FIX: Runs twice a month to stay in Twitter's 100-post limit
+            Schedule: cron(0 0 1,15 * ? *)
+        
+        # --- NEW: Add this API trigger ---
+        OnDemandCheck:
           Type: Api
           Properties:
-            Path: /request-check
+            Path: /request-check  # Re-using the path
             Method: POST
             RestApiId: !Ref ApiGatewayApi
             Auth:
               Authorizer: CognitoAuthorizer
-      Policies: # Add permissions to publish to SNS
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt SnsTopic.TopicName
     DependsOn:
       - ApiGatewayApi
       - SnsTopic
-    Metadata:
-      BuildMethod: python3.13
+      - WebsitesTable
 
   # DynamoDB Table to store website data
   WebsitesTable:

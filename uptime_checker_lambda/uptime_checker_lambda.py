@@ -31,13 +31,60 @@ def get_sentiment(text):
 def handler(event, context):
     """
     Lambda handler function to check website status and analyze Twitter sentiment using API v2.
+    This handler can be triggered by a schedule (to check all sites)
+    OR by an API call (to check one specific site).
     """
+    print(f"Received event: {json.dumps(event)}") # For debugging
     table = dynamodb.Table(TABLE_NAME)
-    websites = table.scan().get('Items', [])
+    websites_to_check = [] # This list will hold the sites we need to process
+    
+    # --- NEW: Check how the function was triggered ---
+    if event.get('requestContext'):
+        # --- TRIGGER 1: API CALL (On-Demand Check) ---
+        print("Handler triggered by API Gateway (On-Demand Check)")
+        try:
+            # --- Notify Admin via SNS ---
+            claims = event.get('requestContext', {}).get('authorizer', {}).get('jwt', {}).get('claims', {})
+            user_email = claims.get('email', 'N/A')
+            body = json.loads(event.get('body', '{}'))
+            website_url = body.get('website_url')
+
+            if not website_url:
+                return {'statusCode': 400, 'headers': { 'Access-Control-Allow-Origin': '*' }, 'body': json.dumps('website_url not provided in body')}
+
+            subject = f"Manual Sentiment Check Requested: {website_url}"
+            message = (
+                f"A user has requested an immediate sentiment check.\n\n"
+                f"User Email: {user_email}\n"
+                f"Website: {website_url}\n\n"
+                f"This check is being processed automatically by the system."
+            )
+
+            if IS_SAM_LOCAL:
+                print("--- SAM LOCAL: MOCK SNS (Admin Notify) ---")
+                print(f"Subject: {subject}\nMessage: {message}")
+            else:
+                sns.publish(TopicArn=SNS_TOPIC_ARN, Message=message, Subject=subject)
+            # --- END OF SNS NOTIFY ---
+
+            # Now, get the single site to check
+            response = table.get_item(Key={'website_url': website_url})
+            if 'Item' in response:
+                websites_to_check.append(response['Item'])
+            else:
+                return {'statusCode': 404, 'headers': { 'Access-Control-Allow-Origin': '*' }, 'body': json.dumps('Website not found')}
+        except Exception as e:
+            return {'statusCode': 500, 'headers': { 'Access-Control-Allow-Origin': '*' }, 'body': json.dumps(f"Error parsing request: {str(e)}")}
+    else:
+        # --- TRIGGER 2: SCHEDULED EVENT (Normal Run) ---
+        print("Handler triggered by schedule (Scheduled Check)")
+        response = table.scan()
+        websites_to_check = response.get('Items', [])
     
     # --- DEBUG LINE ---
     print(f"--- DEBUG: Loaded Bearer Token: '{BEARER_TOKEN}' ---")
-    
+    print(f"--- DEBUG: Loaded Table: '{TABLE_NAME}' ---")
+
     # Initialize the Tweepy Client for Twitter API v2
     if not BEARER_TOKEN:
         print("FATAL ERROR: TWITTER_BEARER_TOKEN environment variable not set.")
@@ -49,7 +96,7 @@ def handler(event, context):
         print(f"Error initializing Twitter client: {e}")
         return {'statusCode': 500, 'body': json.dumps('Failed to init Twitter client.')}
 
-    for site in websites:
+    for site in websites_to_check:
         website_url = site['website_url']
         twitter_keyword = site['twitter_keyword']
         current_status = 'DOWN'  # Default to DOWN
@@ -63,11 +110,14 @@ def handler(event, context):
             print(f"Error checking {website_url}: {e}")
             if site.get('status') != 'DOWN':
                 # Only publish if the status *changed* to DOWN
-                sns.publish(
-                    TopicArn=SNS_TOPIC_ARN,
-                    Message=f"Website Down Alert: {website_url} is unreachable.",
-                    Subject="Website Down Alert!"
-                )
+                if IS_SAM_LOCAL:
+                    print("--- SAM LOCAL: MOCK SNS (Site Down Alert) ---")
+                    print(f"Subject: Website Down Alert! Message: {website_url} is unreachable.")
+                else:
+                    sns.publish(
+                        TopicArn=SNS_TOPIC_ARN,
+                        Message=f"Website Down Alert: {website_url} is unreachable.",
+                        Subject="Website Down Alert!")
 
         # 2. Analyze Twitter Sentiment using API v2
         total_sentiment = 0.0
@@ -121,7 +171,17 @@ def handler(event, context):
         print("Waiting 10 seconds to avoid rate limit...")
         time.sleep(10)
 
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Website checks and sentiment analysis complete!')
-    }
+    # --- NEW: Return a different response based on the trigger ---
+    if event.get('requestContext'):
+        # This was an API call
+        return {
+            'statusCode': 200,
+            'headers': { 'Access-Control-Allow-Origin': '*' },
+            'body': json.dumps({'message': f'Check complete for {websites_to_check[0]["website_url"]}, Login again to see changes.'})
+        }
+    else:
+        # This was a scheduled run
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Scheduled check of all sites complete!')
+        }
