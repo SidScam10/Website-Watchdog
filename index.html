@@ -4,19 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Website Watchdog</title>
-    <!-- Imports Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Imports OIDC Client library for Cognito authentication -->
     <script src="https://unpkg.com/oidc-client-ts@2.2.0/dist/browser/oidc-client-ts.min.js"></script>
-    <!-- Imports the Inter font family -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
-        /* Custom style for text in <pre> tags */
         pre {
             white-space: pre-wrap;
             word-break: break-all;
-            background-color: #1f2937; /* Darker background for code/tokens */
+            background-color: #1f2937;
             padding: 0.5rem;
             border-radius: 0.25rem;
             font-size: 0.8rem;
@@ -26,12 +22,10 @@
             transition: background-color 0.2s;
         }
         .website-card:hover {
-            background-color: #374151; /* A slightly lighter gray on hover */
+            background-color: #374151;
         }
-        
-        /* NEW: Styles for the modal popup */
         .modal {
-            display: none; /* Hidden by default */
+            display: none;
             position: fixed;
             z-index: 1000;
             left: 0;
@@ -39,10 +33,10 @@
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0, 0, 0, 0.7); /* Dim background */
+            background-color: rgba(0, 0, 0, 0.7);
         }
         .modal-content {
-            background-color: rgb(7, 71, 55); /* Dark gray */
+            background-color: rgb(7, 71, 55);
             margin: 10% auto;
             padding: 24px;
             border-radius: 8px;
@@ -62,22 +56,21 @@
         .modal-close:hover {
             color: darkred;
         }
-        /* --- NEW: Spinner Styles --- */
         .spinner-overlay {
-            display: none; /* Hidden by default */
+            display: none;
             position: fixed;
-            z-index: 2000; /* On top of everything */
+            z-index: 2000;
             left: 0;
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.5); /* Dim overlay */
+            background-color: rgba(0, 0, 0, 0.5);
             justify-content: center;
             align-items: center;
         }
         .spinner {
-            border: 6px solid #f3f3f3; /* Light grey */
-            border-top: 6px solid #3498db; /* Blue */
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #3498db;
             border-radius: 50%;
             width: 50px;
             height: 50px;
@@ -94,20 +87,17 @@
         <img src="src/header-alt.png" alt="Website Watchdog" class="mx-auto w-auto" style="max-height: 500px; display: block;">
     </div>
 
-    <!-- Auth Container: Shown when logged out -->
     <div id="auth-container" class="max-w-md mx-auto mt-20 p-8 text-center bg-teal-900 rounded-lg shadow-lg">
         <a href="https://console.aws.com"><img src="src/aws-logo.png" alt="AWS Logo" class="mx-auto w-auto hover:scale-110 transition duration-300" style="max-height: 200px; display: block; padding-bottom: 20px; margin-top: -10px"></a>
         <button id="signIn" class="w-full bg-red-600 hover:bg-green-700 hover:scale-110 text-white font-bold py-3 px-4 rounded transition duration-300">Cognito Sign In</button>
     </div>
 
-    <!-- Main App Container: Shown when logged in -->
     <div id="app-container" class="hidden max-w-4xl mx-auto mt-10 p-8">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold">Website-Watchdog Dashboard</h1>
             <button id="signOut" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded hover:scale-110 transition duration-300">Logout</button>
         </div>
 
-        <!-- Add Website Form -->
         <div class="bg-teal-900 p-6 rounded-lg shadow-lg mb-8">
             <h2 class="text-xl font-semibold mb-4">Monitor a New Website</h2>
             <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
@@ -117,80 +107,75 @@
             </div>
         </div>
 
-        <!-- Monitored Websites -->
         <div>
             <h2 class="text-2xl font-semibold mb-4">Monitored Services</h2>
-            <div id="website-list" class="space-y-4">
-                <!-- Website items will be injected here by loadWebsites() -->
-            </div>
+            <div id="website-list" class="space-y-4"></div>
         </div>
     </div>
 
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeHistoryModal()">&times;</span>
+            <h2 id="modalTitle" class="text-2xl font-bold mb-4">Tweet History</h2>
+            <div id="modalBody" class="max-h-96 overflow-y-auto space-y-4"></div>
+        </div>
+    </div>
+    <div id="spinnerOverlay" class="spinner-overlay">
+        <div class="spinner"></div>
+    </div>
     <script>
-        // --- OIDC and API Configuration ---
-        // These MUST be filled in with your own AWS resource values.
         const cognitoConfig = {
             region : 'ap-south-2',
-            userPoolId: 'ap-south-2_bLLgSfyzX', // e.g., us-east-1_xxxxxxxxx
-            clientId: '3kvgn6o8b77pajam0mrr8b8fe1', // The App Client ID
+            userPoolId: 'ap-south-2_bLLgSfyzX',
+            clientId: '3kvgn6o8b77pajam0mrr8b8fe1',
             cognitoDomain: 'https://ap-south-2bllgsfyzx.auth.ap-south-2.amazoncognito.com',
-            apiGatewayEndpoint: 'http://127.0.0.1:3000', // For local SAM testing
-            redirectUri: 'http://localhost:8081', // For local http.server
-            logoutUri: 'http://localhost:8081'      // For local http.server
+            apiGatewayEndpoint: 'https://wdiwonacj9.execute-api.ap-south-2.amazonaws.com/prod',
+            redirectUri: 'https://d19k30og2a4zvm.cloudfront.net',
+            logoutUri: 'https://d19k30og2a4zvm.cloudfront.net'     
         };
-        let idToken = null; // Stores the user's ID token after login
-        let monitoredSites = []; // NEW: Global cache for site data
+        let accessToken = null;
+        let monitoredSites = [];
 
-        // Configuration for the oidc-client-ts library
         const authSettings = {
             authority: `https://cognito-idp.${cognitoConfig.userPoolId.split('_')[0]}.amazonaws.com/${cognitoConfig.userPoolId}`,
             client_id: cognitoConfig.clientId,
             redirect_uri: cognitoConfig.redirectUri,
-            response_type: "code", // Use Authorization Code flow
-            scope: "openid email profile", // The scopes we requested in Cognito
+            response_type: "code",
+            scope: "openid email profile",
             post_logout_redirect_uri: cognitoConfig.logoutUri,
         };
         
         const userManager = new oidc.UserManager(authSettings);
 
-        // --- UI Functions ---
-        // Shows the main app and hides the login button
         function showApp(user) {
-            console.log("User found on load:", user); // Debug line
-            idToken = user.id_token; // Save the token for API calls
+            console.log("User found on load:", user);
             
-            // --- NEW FIX: Check if idToken is valid ---
-            if (!idToken) {
-                console.error("No id_token on user object! Forcing re-auth.");
+            if (!user.access_token) {
+                console.error("No access_token on user object! Forcing re-auth.");
                 alert("Your session has expired. Please sign in again.");
-                // Clear the bad session and force a sign-in
                 userManager.signoutRedirect();
                 return;
             }
 
-            idToken = user.id_token; // Save the token for API calls
+            accessToken = user.access_token;
             document.getElementById('auth-container').classList.add('hidden');
             document.getElementById('app-container').classList.remove('hidden');
-            loadWebsites(); // Load user data
+            loadWebsites();
         }
 
-        // Shows the login button and hides the main app
         function showAuth() {
             document.getElementById('auth-container').classList.remove('hidden');
             document.getElementById('app-container').classList.add('hidden');
         }
         
-        // --- Authentication Logic ---
         document.getElementById("signIn").addEventListener("click", () => userManager.signinRedirect());
         document.getElementById("signOut").addEventListener("click", () => userManager.signoutRedirect());
 
-        // Handles the redirect back from Cognito after a successful login
         async function handleAuthCallback() {
             try {
                 const user = await userManager.signinCallback();
                 if (user) {
                     showApp(user);
-                    // Clean the URL (remove the ?code=... part)
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }
             } catch (error) {
@@ -199,42 +184,34 @@
             }
         }
         
-        // --- Main Application Logic on Page Load ---
         async function main() {
-            // Check if this is a redirect back from Cognito
             if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
                 await handleAuthCallback();
                 return;
             }
-            // Otherwise, check if user is already logged in
             const user = await userManager.getUser();
             if (user && !user.expired) {
                 showApp(user);
             } else {
-                showAuth(); // Not logged in, show login button
+                showAuth();
             }
         }
-        main(); // Run the main logic when the page loads
+        main();
 
-        // --- API Functions ---
-        
-        /**
-         * Fetches the list of websites from the API and renders them.
-         */
         async function loadWebsites() {
-            if (!idToken) return;
+            if (!accessToken) return;
             showSpinner();
             try {
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/websites', {
                     method: 'GET',
-                    headers: { 'Authorization': idToken } // Send the ID token for auth
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 if (!response.ok) throw new Error('Failed to fetch websites');
                 
                 const websites = await response.json();
                 const websiteList = document.getElementById('website-list');
-                monitoredSites = websites; // NEW: Save data to global cache
-                websiteList.innerHTML = ''; // Clear the list before re-rendering
+                monitoredSites = websites;
+                websiteList.innerHTML = '';
 
                 if (websites.length === 0) {
                     websiteList.innerHTML = '<p class="text-gray-400 text-center">No websites added yet. Add one above to start monitoring.</p>';
@@ -242,7 +219,6 @@
                 }
 
                 websites.forEach(site => {
-                    // --- Status Colors ---
                     const sentimentScore = parseFloat(site.sentiment_score || 0).toFixed(2);
                     let statusColor = 'text-gray-400';
                     if (site.status === 'UP') statusColor = 'text-green-400';
@@ -252,14 +228,11 @@
                     if (sentimentScore > 0.1) sentimentColor = 'text-green-400';
                     if (sentimentScore < -0.1) sentimentColor = 'text-red-400';
 
-                    // --- NEW CHANGE: Build the list of example tweets ---
                     let tweetsHtml = '';
-                    // Check if the 'example_tweets' key exists and has items
                     if (site.example_tweets && site.example_tweets.length > 0) {
                         tweetsHtml = '<ul class="mt-3 pt-3 border-t border-gray-700 pl-4 list-disc text-gray-400 text-sm">';
                         tweetsHtml += '<li class="font-semibold text-gray-300 mb-1">Recent Tweets Analyzed:</li>';
                         site.example_tweets.forEach(tweet => {
-                            // Truncate long tweets for display
                             const shortTweet = tweet.length > 100 ? tweet.substring(0, 100) + '...' : tweet;
                             tweetsHtml += `<li class="italic ml-4">"${shortTweet}"</li>`;
                         });
@@ -268,19 +241,15 @@
 
                     let hostname = 'default.com';
                     try {
-                        // Use the URL object to safely parse the hostname
                         hostname = new URL(site.website_url).hostname;
                     } catch (e) { 
                         console.warn("Could not parse URL for logo:", site.website_url); 
                     }
-                    // Use Google's free favicon service. sz=32 requests a 32x32 pixel icon.
                     const logoUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
                     
-                    // --- Build the final HTML for the card ---
                     const websiteElement = `
-                        <div onclick="showHistoryModal(event, '${site.website_url}')" classid="card-${site.website_url}" class="website-card bg-gray-800 p-4 rounded-lg shadow-md">
+                        <div onclick="showHistoryModal(event, '${site.website_url}')" class="website-card bg-gray-800 p-4 rounded-lg shadow-md">
                             <div class="flex justify-between items-start">
-                                
                                 <div class="flex items-center space-x-3">
                                     <img src="${logoUrl}" alt="logo" class="w-8 h-8 rounded-full bg-gray-700 flex-shrink-0">
                                     <div>
@@ -288,7 +257,6 @@
                                         <p class="text-sm text-gray-400">Twitter Keyword: ${site.twitter_keyword}</p>
                                     </div>
                                 </div>
-
                                 <div class="text-right flex-shrink-0 ml-4">
                                     <p class="font-bold text-lg ${statusColor}">${site.status || 'Checking...'}</p>
                                     <p class="font-semibold ${sentimentColor}">Sentiment: ${sentimentScore}</p>
@@ -296,12 +264,8 @@
                             </div>
                             ${tweetsHtml}
                             <div class="text-right mt-2 space-x-4">
-                                <button onclick="requestCheck(event, '${site.website_url}')" class="text-xs text-blue-400 hover:text-blue-300">
-                                    Request Check
-                                </button>
-                                <button onclick="deleteWebsite(event, '${site.website_url}')" class="text-xs text-red-400 hover:text-red-300">
-                                    Delete
-                                </button>
+                                <button onclick="requestCheck(event, '${site.website_url}')" class="text-xs text-blue-400 hover:text-blue-300">Request Check</button>
+                                <button onclick="deleteWebsite(event, '${site.website_url}')" class="text-xs text-red-400 hover:text-red-300">Delete</button>
                             </div>
                         </div>
                     `;
@@ -316,11 +280,8 @@
              }
         }
 
-        /**
-         * Sends a new website to the API to be added.
-         */
         async function addWebsite() {
-            if (!idToken) return;
+            if (!accessToken) return;
             const url = document.getElementById('website-url').value;
             const keyword = document.getElementById('website-keyword').value;
             if (!url || !keyword) {
@@ -332,7 +293,7 @@
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/websites', {
                     method: 'POST',
                     headers: {
-                        'Authorization': idToken,
+                        'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ website_url: url, twitter_keyword: keyword })
@@ -341,20 +302,20 @@
                 if (!response.ok) throw new Error('Failed to add website');
                 document.getElementById('website-url').value = '';
                 document.getElementById('website-keyword').value = '';
-                loadWebsites(); // Refresh the list
+                loadWebsites();
 
             } catch (error) {
                 console.error('Error adding website:', error);
                 alert('Could not add website.');
             } finally {
-                hideSpinner(); // <-- ADD THIS
+                hideSpinner();
             }
         }
+
         async function deleteWebsite(event, websiteUrl) {
-            event.stopPropagation(); // NEW: Stop the card's click event
-            if (!idToken) return;
+            event.stopPropagation();
+            if (!accessToken) return;
             
-            // Use a simple confirmation before deleting
             if (!confirm(`Are you sure you want to delete ${websiteUrl}?`)) {
                 return;
             }
@@ -364,7 +325,7 @@
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/websites', {
                     method: 'DELETE',
                     headers: {
-                        'Authorization': idToken,
+                        'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ website_url: websiteUrl })
@@ -375,7 +336,7 @@
                     throw new Error(err.error || 'Failed to delete website');
                 }
                 
-                loadWebsites(); // Refresh the list after successful deletion
+                loadWebsites();
 
             } catch (error) {
                 console.error('Error deleting website:', error);
@@ -384,12 +345,10 @@
                 hideSpinner();
             }
         }
-        /**
-         * Finds the history for a site and displays the modal.
-         */
+
         function showHistoryModal(event, websiteUrl) {
             if (event.target.tagName === 'BUTTON') {
-                event.stopPropagation(); // Stop the click from bubbling up
+                event.stopPropagation();
                 return;
             }
             const site = monitoredSites.find(s => s.website_url === websiteUrl);
@@ -401,12 +360,10 @@
             const modalTitle = document.getElementById('modalTitle');
             const modalBody = document.getElementById('modalBody');
             
-            modalBody.innerHTML = ''; // Clear old content
+            modalBody.innerHTML = '';
 
-            // Get the Twitter logo URL (using the same Google service)
-            const twitterLogoUrl = 'https://www.google.com/s2/favicons?domain=twitter.com&sz=24'; // 24px size
+            const twitterLogoUrl = 'https://www.google.com/s2/favicons?domain=twitter.com&sz=24';
 
-            // Set the .innerHTML to include the image
             modalTitle.innerHTML = `
                 <div class="flex items-center space-x-2">
                     <img src="${twitterLogoUrl}" alt="twitter" class="w-6 h-6 rounded-full">
@@ -414,7 +371,6 @@
                 </div>
             `;
 
-            // Loop through history entries (newest first)
             site.tweet_history.slice().reverse().forEach(entry => {
                 let tweetsHtml = '<ul class="pl-4 list-disc text-gray-400 text-sm">';
                 if (entry.tweets && entry.tweets.length > 0) {
@@ -444,14 +400,10 @@
             document.getElementById('historyModal').style.display = 'block';
         }
 
-        /**
-         * Hides the history modal.
-         */
         function closeHistoryModal() {
             document.getElementById('historyModal').style.display = 'none';
         }
 
-        // Buffering to indicate load while adding websites, calling api, etc.
         function showSpinner() {
             document.getElementById('spinnerOverlay').style.display = 'flex';
         }
@@ -461,8 +413,8 @@
         }
 
         async function requestCheck(event, websiteUrl) {
-            event.stopPropagation(); // Stop the card's click event
-            if (!idToken) return;
+            event.stopPropagation();
+            if (!accessToken) return;
 
             if (!confirm(`This will send a request to the admin to run a manual check on ${websiteUrl}. Continue?`)) {
                 return;
@@ -473,7 +425,7 @@
                 const response = await fetch(cognitoConfig.apiGatewayEndpoint + '/request-check', {
                     method: 'POST',
                     headers: {
-                        'Authorization': idToken,
+                        'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ website_url: websiteUrl })
@@ -484,7 +436,7 @@
                     throw new Error(result.error || 'Failed to send request');
                 }
                 
-                alert(result.message); // Show success message from API
+                alert(result.message);
 
             } catch (error) {
                 console.error('Error requesting check:', error);
@@ -494,17 +446,5 @@
             }
         }
     </script>
-    <div id="historyModal" class="modal">
-        <div class="modal-content">
-            <span class="modal-close" onclick="closeHistoryModal()">&times;</span>
-            <h2 id="modalTitle" class="text-2xl font-bold mb-4">Tweet History</h2>
-            <div id="modalBody" class="max-h-96 overflow-y-auto space-y-4">
-                </div>
-        </div>
-    </div>
-    <div id="spinnerOverlay" class="spinner-overlay">
-        <div class="spinner"></div>
-    </div>
 </body>
 </html>
-

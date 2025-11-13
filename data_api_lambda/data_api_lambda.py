@@ -17,14 +17,27 @@ if not TABLE_NAME:
     raise ValueError("FATAL ERROR: DYNAMODB_TABLE environment variable not set.")
 table = dynamodb.Table(TABLE_NAME)
 
+# --- CORS Headers Constant ---
+CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS'
+}
+
 def handler(event, context):
     """
     Handles API Gateway requests for managing websites.
     """
     print(f"Received event: {json.dumps(event)}")
     
-    # FIX: Use .get() to safely find the http_method from the new event structure
+    # Handle OPTIONS preflight requests
     http_method = event.get('httpMethod') or event.get('requestContext', {}).get('httpMethod')
+    if http_method == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': ''
+        }
     
     # Local SAM Testing get() to delete websites function
     # This nested .get() chain prevents a KeyError if any key is missing
@@ -35,9 +48,10 @@ def handler(event, context):
         print("SAM LOCAL: Mocking user_id for local testing.")
         user_id = "local-test-user" # Provide a mock ID for local tests
     
-    if not user_id and not IS_SAM_LOCAL:
-        print("Production Error: No user_id found in token.")
-        return {'statusCode': 401, 'body': json.dumps({'error': 'Unauthorized: Missing or invalid token claims'})}
+    # NEW: For testing without auth (when Auth is commented out in template.yaml)
+    if not user_id:
+        print("WARNING: No user_id found. Using default for testing without auth.")
+        user_id = "test-user-no-auth"
 
     try:
         if http_method == 'GET':
@@ -51,7 +65,7 @@ def handler(event, context):
             
             return {
                 'statusCode': 200,
-                'headers': { 'Access-Control-Allow-Origin': '*' },
+                'headers': CORS_HEADERS,
                 'body': json.dumps(items)
             }
 
@@ -73,7 +87,7 @@ def handler(event, context):
             
             return {
                 'statusCode': 201,
-                'headers': { 'Access-Control-Allow-Origin': '*' },
+                'headers': CORS_HEADERS,
                 'body': json.dumps({'message': 'Website added successfully'})
             }
 
@@ -86,9 +100,9 @@ def handler(event, context):
             if not website_url_to_delete:
                 raise ValueError("website_url not provided for deletion")
 
-            if IS_SAM_LOCAL:
-                # FIX: For local testing, we can't verify the user_id, so we do a simple delete.
-                print("SAM LOCAL: Skipping user_id check for DELETE")
+            if IS_SAM_LOCAL or user_id == "test-user-no-auth":
+                # FIX: For local testing or no-auth testing, we can't verify the user_id, so we do a simple delete.
+                print("SAM LOCAL or NO AUTH: Skipping user_id check for DELETE")
                 table.delete_item(
                     Key={'website_url': website_url_to_delete}
                 )
@@ -103,7 +117,7 @@ def handler(event, context):
             
             return {
                 'statusCode': 200,
-                'headers': { 'Access-Control-Allow-Origin': '*' },
+                'headers': CORS_HEADERS,
                 'body': json.dumps({'message': 'Website deleted successfully'})
             }
 
@@ -111,13 +125,13 @@ def handler(event, context):
         print(f"Error: {e}")
         return {
             'statusCode': 500,
-            'headers': { 'Access-Control-Allow-Origin': '*' },
+            'headers': CORS_HEADERS,
             'body': json.dumps({'error': str(e)})
         }
     
     # Fallback for unhandled methods
     return {
         'statusCode': 400,
-        'headers': { 'Access-Control-Allow-Origin': '*' },
+        'headers': CORS_HEADERS,
         'body': json.dumps({'error': 'Unsupported HTTP method'})
     }

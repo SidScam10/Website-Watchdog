@@ -30,24 +30,24 @@ Resources:
             Path: /websites
             Method: get
             RestApiId: !Ref ApiGatewayApi
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+              # Authorizer: CognitoAuthorizer
         AddWebsite:
           Type: Api
           Properties:
             Path: /websites
             Method: post
             RestApiId: !Ref ApiGatewayApi
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+              # Authorizer: CognitoAuthorizer
         DeleteWebsite:
           Type: Api
           Properties:
             Path: /websites
             Method: DELETE
             RestApiId: !Ref ApiGatewayApi
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+              # Authorizer: CognitoAuthorizer
     Metadata:
       BuildMethod: python3.13
 
@@ -69,7 +69,7 @@ Resources:
           # NEW: Use the Bearer Token for Twitter API v2
           # You will set the actual value in your .env file for local testing
           # and in the Lambda console for production.
-          TWITTER_BEARER_TOKEN: "YOUR_BEARER_TOKEN_HERE" 
+          TWITTER_BEARER_TOKEN: "YOUR_BEARER_TOKEN_HERE"
       Events:
         ScheduledCheck:
           Type: Schedule
@@ -84,10 +84,9 @@ Resources:
             Path: /request-check  # Re-using the path
             Method: POST
             RestApiId: !Ref ApiGatewayApi
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+              # Authorizer: CognitoAuthorizer
     DependsOn:
-      - ApiGatewayApi
       - SnsTopic
       - WebsitesTable
 
@@ -120,7 +119,45 @@ Resources:
       Cors:
         AllowMethods: "'GET,POST,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-        AllowOrigin: "'*'" # For production, restrict this to your domain
+        AllowOrigin: "'*'"
+        AllowCredentials: false  # ADD THIS
+      GatewayResponses:
+        UNAUTHORIZED:
+          StatusCode: 401
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,DELETE,OPTIONS'"
+          ResponseTemplates:
+            application/json: '{"message":$context.error.messageString}'
+        DEFAULT_4XX:
+          StatusCode: 400
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,DELETE,OPTIONS'"
+          ResponseTemplates:
+            application/json: '{"message":$context.error.messageString}'
+        DEFAULT_5XX:
+          StatusCode: 500
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,DELETE,OPTIONS'"
+          ResponseTemplates:
+            application/json: '{"message":$context.error.messageString}'
+        ACCESS_DENIED:  # ADD THIS
+          StatusCode: 403
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,DELETE,OPTIONS'"
+          ResponseTemplates:
+            application/json: '{"message":$context.error.messageString}'
       Auth:
         Authorizers:
           CognitoAuthorizer:
@@ -129,7 +166,7 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: "API Gateway endpoint URL for Prod stage"
-    Value: !Sub "https://__${ServerlessRestApi}__.execute-api.${AWS::Region}.amazonaws.com/prod/"
+    Value: !Sub "https://${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
   DataApiFunction:
     Description: "Data API Lambda Function ARN"
     Value: !GetAtt DataApiFunction.Arn

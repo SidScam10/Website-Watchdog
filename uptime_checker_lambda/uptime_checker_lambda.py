@@ -23,6 +23,13 @@ SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
 
 sns = boto3.client('sns')
 
+# --- CORS Headers Constant ---
+CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+    'Access-Control-Allow-Methods': 'POST,OPTIONS'
+}
+
 def get_sentiment(text):
     """Analyzes the sentiment of a given text."""
     analysis = TextBlob(text)
@@ -35,6 +42,15 @@ def handler(event, context):
     OR by an API call (to check one specific site).
     """
     print(f"Received event: {json.dumps(event)}") # For debugging
+    
+    # Handle OPTIONS preflight requests
+    if event.get('httpMethod') == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': ''
+        }
+    
     table = dynamodb.Table(TABLE_NAME)
     websites_to_check = [] # This list will hold the sites we need to process
     
@@ -50,7 +66,11 @@ def handler(event, context):
             website_url = body.get('website_url')
 
             if not website_url:
-                return {'statusCode': 400, 'headers': { 'Access-Control-Allow-Origin': '*' }, 'body': json.dumps('website_url not provided in body')}
+                return {
+                    'statusCode': 400,
+                    'headers': CORS_HEADERS,
+                    'body': json.dumps({'error': 'website_url not provided in body'})
+                }
 
             subject = f"Manual Sentiment Check Requested: {website_url}"
             message = (
@@ -72,9 +92,17 @@ def handler(event, context):
             if 'Item' in response:
                 websites_to_check.append(response['Item'])
             else:
-                return {'statusCode': 404, 'headers': { 'Access-Control-Allow-Origin': '*' }, 'body': json.dumps('Website not found')}
+                return {
+                    'statusCode': 404,
+                    'headers': CORS_HEADERS,
+                    'body': json.dumps({'error': 'Website not found'})
+                }
         except Exception as e:
-            return {'statusCode': 500, 'headers': { 'Access-Control-Allow-Origin': '*' }, 'body': json.dumps(f"Error parsing request: {str(e)}")}
+            return {
+                'statusCode': 500,
+                'headers': CORS_HEADERS,
+                'body': json.dumps({'error': f"Error parsing request: {str(e)}"})
+            }
     else:
         # --- TRIGGER 2: SCHEDULED EVENT (Normal Run) ---
         print("Handler triggered by schedule (Scheduled Check)")
@@ -88,13 +116,21 @@ def handler(event, context):
     # Initialize the Tweepy Client for Twitter API v2
     if not BEARER_TOKEN:
         print("FATAL ERROR: TWITTER_BEARER_TOKEN environment variable not set.")
-        return {'statusCode': 500, 'body': json.dumps('Twitter Bearer Token not configured.')}
+        return {
+            'statusCode': 500,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'error': 'Twitter Bearer Token not configured.'})
+        }
         
     try:
         twitter_client = tweepy.Client(BEARER_TOKEN)
     except Exception as e:
         print(f"Error initializing Twitter client: {e}")
-        return {'statusCode': 500, 'body': json.dumps('Failed to init Twitter client.')}
+        return {
+            'statusCode': 500,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'error': 'Failed to init Twitter client.'})
+        }
 
     for site in websites_to_check:
         website_url = site['website_url']
@@ -176,7 +212,7 @@ def handler(event, context):
         # This was an API call
         return {
             'statusCode': 200,
-            'headers': { 'Access-Control-Allow-Origin': '*' },
+            'headers': CORS_HEADERS,
             'body': json.dumps({'message': f'Check complete for {websites_to_check[0]["website_url"]}, Login again to see changes.'})
         }
     else:
