@@ -11,10 +11,11 @@ The application is built using AWS SAM and includes:
 
 There are two main branches present in the repo: main and AWS-Branch, where the main branch deals with local deployment and AWS-Branch deals with the specific configuration and changes to suit production code deployed onto AWS services.
 
-You can visit the deployed Website-Watchdog using the release URL.
+You can visit the deployed Website-Watchdog using the URL provided in the repository description.
 
 ## **WARNING:** 
 The Twitter Bearer Token is limited to only Free-Tier Use and is automatically scheduled to fetch and run tweets weekly once to align with free tier limitations of the project
+
 **DO NOT** keep requesting checks as API limits will be exhausted and there is a rate limit of 15 mins per 10 posts check.
 
 ## Prerequisites
